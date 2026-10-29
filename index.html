@@ -1,0 +1,1464 @@
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Agua Celestial - App POS Cloud</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- HTML2Canvas para exportar tickets a PNG -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase JS SDK (Compatilibidad Web) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        celestial: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            400: '#38bdf8',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            900: '#0c4a6e',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0f172a;
+            font-family: 'Roboto', sans-serif;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .phone-container {
+            max-width: 430px;
+            height: 100vh;
+            max-height: 920px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @media print {
+            body * { visibility: hidden; }
+            #print-ticket-area, #print-ticket-area * { visibility: visible; }
+            #print-ticket-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 10px;
+                border: none !important;
+                box-shadow: none !important;
+            }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-0 sm:p-4">
+
+    <!-- Frame de Pantalla Móvil -->
+    <div class="phone-container w-full bg-slate-50 rounded-none sm:rounded-[40px] overflow-hidden flex flex-col relative border-0 sm:border-8 border-slate-800">
+        
+        <!-- Barra de Estado Superior -->
+        <div class="bg-celestial-700 text-white px-6 pt-3 pb-1 flex justify-between items-center text-xs z-50">
+            <span id="current-time" class="font-bold">10:30</span>
+            <div class="flex items-center space-x-2">
+                <span id="sync-indicator" class="bg-emerald-500 text-white font-bold px-1.5 py-0.2 rounded text-[9px] flex items-center gap-1">
+                    <i class="fas fa-wifi text-[8px]"></i> Firebase Online
+                </span>
+                <span id="role-badge" class="bg-amber-400 text-slate-900 font-bold px-1.5 py-0.2 rounded text-[10px]">Sin Sesión</span>
+                <i class="fas text-[10px] fa-battery-full"></i>
+            </div>
+        </div>
+
+        <!-- Encabezado de la App -->
+        <header id="app-header" class="bg-gradient-to-r from-celestial-700 to-celestial-600 text-white p-4 shadow-md flex items-center justify-between z-40 hidden">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl shadow-inner">
+                    <i class="fas fa-droplet text-cyan-200"></i>
+                </div>
+                <div>
+                    <h1 class="font-black text-lg leading-tight tracking-wide">Agua Celestial</h1>
+                    <p id="active-user-display" class="text-[11px] text-celestial-100 font-light">Vendedor: ---</p>
+                </div>
+            </div>
+            
+            <button onclick="logout()" class="bg-white/10 hover:bg-white/20 border border-white/20 px-2.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition">
+                <i class="fas fa-right-from-bracket text-amber-300"></i>
+                <span class="font-semibold text-[11px]">Salir</span>
+            </button>
+        </header>
+
+        <!-- Contenedor de Vistas -->
+        <main class="flex-1 overflow-y-auto no-scrollbar pb-20 bg-slate-50 relative" id="main-content">
+            
+            <!-- VISTA 0: INICIO DE SESIÓN -->
+            <section id="view-login" class="p-6 space-y-6 flex flex-col justify-center min-h-[680px]">
+                <div class="text-center space-y-2">
+                    <div class="w-20 h-20 bg-celestial-600 text-white rounded-full flex items-center justify-center mx-auto text-4xl shadow-xl shadow-celestial-600/30">
+                        <i class="fas fa-droplet"></i>
+                    </div>
+                    <h2 class="text-2xl font-black text-slate-800 tracking-tight">Agua Celestial</h2>
+                    <p class="text-xs text-slate-500">POS Móvil Sincronizado en Tiempo Real</p>
+                </div>
+
+                <form onsubmit="handleLoginSubmit(event)" class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre de Usuario</label>
+                        <input type="text" id="login-username" placeholder="Ej. admin, juan o pedro" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-celestial-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Contraseña / PIN</label>
+                        <input type="password" id="login-password" placeholder="••••" required class="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-3 text-center text-lg tracking-widest font-bold text-slate-800 outline-none focus:ring-2 focus:ring-celestial-500">
+                    </div>
+
+                    <p id="login-error" class="text-xs text-rose-500 font-semibold text-center hidden">Credenciales incorrectas. Intente de nuevo.</p>
+
+                    <button type="submit" class="w-full bg-gradient-to-r from-celestial-600 to-celestial-500 hover:from-celestial-700 hover:to-celestial-600 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-celestial-600/30 transition flex items-center justify-center space-x-2">
+                        <i class="fas fa-cloud-arrow-up"></i>
+                        <span>Ingresar al Sistema</span>
+                    </button>
+                </form>
+
+                <!-- Accesos de Prueba -->
+                <div class="bg-slate-100 p-4 rounded-2xl border border-slate-200 text-center space-y-2">
+                    <p class="text-xs font-bold text-slate-600">Accesos Rápidos de Prueba</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="quickLogin('admin', '1234')" class="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs py-2 px-3 rounded-xl font-semibold shadow-sm flex items-center justify-center gap-1.5">
+                            <i class="fas fa-shield-halved text-rose-500"></i> Admin (1234)
+                        </button>
+                        <button onclick="quickLogin('juan', '1234')" class="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs py-2 px-3 rounded-xl font-semibold shadow-sm flex items-center justify-center gap-1.5">
+                            <i class="fas fa-truck text-emerald-500"></i> Juan (1234)
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VISTA 1: POS VENDEDOR -->
+            <section id="view-pos" class="p-4 space-y-4 hidden">
+                <div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                    <div>
+                        <p class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Mis Ventas Activas</p>
+                        <h3 id="pos-vendor-total" class="text-xl font-black text-emerald-400">L 0.00</h3>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Unidades Vendidas</p>
+                        <h3 id="pos-vendor-qty" class="text-xl font-black text-white">0</h3>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <h2 class="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <i class="fas fa-cart-plus text-celestial-600"></i> Registrar Venta
+                    </h2>
+
+                    <!-- Cliente -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Cliente</label>
+                        <select id="pos-client-select" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-celestial-500">
+                        </select>
+                    </div>
+
+                    <!-- Producto -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Producto</label>
+                        <select id="pos-product-select" onchange="onPosProductChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-celestial-700 outline-none focus:ring-2 focus:ring-celestial-500">
+                        </select>
+                    </div>
+
+                    <!-- Cantidad -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
+                        <div class="flex items-center space-x-3">
+                            <button onclick="adjustQuantity(-1)" class="w-12 h-12 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold rounded-2xl flex items-center justify-center text-xl transition">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                            <input type="number" id="pos-qty" value="1" min="1" oninput="calculateTotal()" class="flex-1 bg-slate-50 border border-slate-300 rounded-2xl text-center py-2.5 font-bold text-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-celestial-500">
+                            <button onclick="adjustQuantity(1)" class="w-12 h-12 bg-celestial-600 hover:bg-celestial-700 active:scale-95 text-white font-bold rounded-2xl flex items-center justify-center text-xl shadow-md shadow-celestial-600/30 transition">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Precio Fijo -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-semibold text-slate-600">Precio Unitario Fijo</label>
+                            <span class="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 font-medium px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <i class="fas fa-lock text-[9px]"></i> Bloqueado
+                            </span>
+                        </div>
+                        <input type="text" id="pos-unit-price-display" readonly class="w-full bg-slate-100 border border-slate-300 font-bold text-slate-700 text-sm rounded-xl px-3 py-2.5 focus:outline-none cursor-not-allowed">
+                    </div>
+
+                    <!-- Método de Pago -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Método de Pago</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <label class="cursor-pointer">
+                                <input type="radio" name="payment" value="Efectivo" checked class="peer hidden">
+                                <div class="p-2 border border-slate-200 text-center rounded-xl text-xs font-medium text-slate-600 peer-checked:bg-celestial-50 peer-checked:border-celestial-500 peer-checked:text-celestial-700 transition">
+                                    <i class="fas fa-money-bill-wave block text-sm mb-1"></i>
+                                    Efectivo
+                                </div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="payment" value="Transferencia" class="peer hidden">
+                                <div class="p-2 border border-slate-200 text-center rounded-xl text-xs font-medium text-slate-600 peer-checked:bg-celestial-50 peer-checked:border-celestial-500 peer-checked:text-celestial-700 transition">
+                                    <i class="fas fa-mobile-screen-button block text-sm mb-1"></i>
+                                    Transf.
+                                </div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="payment" value="Crédito" class="peer hidden">
+                                <div class="p-2 border border-slate-200 text-center rounded-xl text-xs font-medium text-slate-600 peer-checked:bg-celestial-50 peer-checked:border-celestial-500 peer-checked:text-celestial-700 transition">
+                                    <i class="fas fa-clock block text-sm mb-1"></i>
+                                    Crédito
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-100 flex flex-col space-y-3">
+                        <div class="flex justify-between items-baseline">
+                            <span class="text-xs text-slate-500 font-semibold">Total Cobrado</span>
+                            <span id="pos-total" class="text-2xl font-black text-slate-900">L 25.00</span>
+                        </div>
+
+                        <button onclick="processSale()" class="w-full bg-gradient-to-r from-celestial-600 to-celestial-500 hover:from-celestial-700 hover:to-celestial-600 active:scale-[0.98] text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-celestial-600/30 flex items-center justify-center space-x-2 transition">
+                            <i class="fas fa-cloud-arrow-up"></i>
+                            <span>Guardar Venta en Nube</span>
+                        </button>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- VISTA 2: MONITOR EN VIVO -->
+            <section id="view-history" class="p-4 space-y-4 hidden">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-800">Monitor en Tiempo Real (Firebase)</h2>
+                        <p class="text-[11px] text-slate-400">Permanecen guardadas hasta el Cierre de Caja</p>
+                    </div>
+                    <span id="history-count" class="text-xs bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded-full">0 ventas</span>
+                </div>
+
+                <div id="sales-list-container" class="space-y-3">
+                </div>
+            </section>
+
+            <!-- VISTA 3: CLIENTES -->
+            <section id="view-clients" class="p-4 space-y-4 hidden">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-800">Clientes de Ruta</h2>
+                        <p class="text-[11px] text-slate-400">Directorio sincronizado</p>
+                    </div>
+                    <button onclick="openNewClientModal()" class="bg-celestial-600 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1 shadow-sm">
+                        <i class="fas fa-plus"></i> Nuevo
+                    </button>
+                </div>
+
+                <div id="clients-list-container" class="space-y-3">
+                </div>
+            </section>
+
+            <!-- VISTA 4: ADMINISTRADOR -->
+            <section id="view-admin" class="p-4 space-y-4 hidden">
+                <div class="bg-rose-600 text-white p-4 rounded-2xl flex justify-between items-center shadow-md">
+                    <div>
+                        <h2 class="font-bold text-sm">Panel de Administración</h2>
+                        <p class="text-xs font-medium text-rose-100">Cierre de Caja y Configuración</p>
+                    </div>
+                    <i class="fas fa-shield-halved text-2xl opacity-80"></i>
+                </div>
+
+                <!-- Subpestanas Admin -->
+                <div class="grid grid-cols-4 gap-1">
+                    <button onclick="switchAdminSubtab('close')" id="subtab-close" class="bg-slate-800 text-white py-2 rounded-xl text-[11px] font-bold shadow-sm">Cierre</button>
+                    <button onclick="switchAdminSubtab('products')" id="subtab-products" class="bg-white text-slate-600 py-2 rounded-xl text-[11px] font-bold border border-slate-200">Productos</button>
+                    <button onclick="switchAdminSubtab('vendors')" id="subtab-vendors" class="bg-white text-slate-600 py-2 rounded-xl text-[11px] font-bold border border-slate-200">Vendedores</button>
+                    <button onclick="switchAdminSubtab('pin')" id="subtab-pin" class="bg-white text-slate-600 py-2 rounded-xl text-[11px] font-bold border border-slate-200">PIN</button>
+                </div>
+
+                <!-- SUB-SECCIÓN: CIERRE DE CAJA -->
+                <div id="admin-sec-close" class="space-y-4">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center space-x-2 text-rose-600 font-bold text-sm">
+                            <i class="fas fa-calculator text-lg"></i>
+                            <span>Ejecutar Cierre de Caja</span>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Seleccionar Objetivo:</label>
+                            <select id="admin-close-vendor-select" onchange="updateClosePreviewStats()" class="w-full bg-slate-50 border border-slate-300 font-semibold text-slate-800 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500">
+                                <option value="ALL">-- CIERRE GENERAL (TODOS LOS VENDEDORES) --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">Unidades Vendidas:</span>
+                                <span id="close-qty" class="font-bold text-slate-800">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">Total Recaudado:</span>
+                                <span id="close-money" class="font-bold text-emerald-600">L 0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="previewCurrentClose()" class="bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition">
+                                <i class="fas fa-receipt"></i>
+                                <span>Ver Ticket</span>
+                            </button>
+                            <button onclick="performDailyClose()" class="bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-rose-600/30 transition">
+                                <i class="fas fa-power-off"></i>
+                                <span>Cerrar y Archivar</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Historial de Cierres -->
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <h3 class="font-bold text-xs text-slate-700 flex items-center gap-2">
+                            <i class="fas fa-box-archive text-celestial-600"></i> Historial de Cierres
+                        </h3>
+                        <div id="close-history-container" class="space-y-2 max-h-80 overflow-y-auto no-scrollbar">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-SECCIÓN: PRODUCTOS -->
+                <div id="admin-sec-products" class="space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center space-x-2 text-slate-800 font-bold text-xs">
+                                <i class="fas fa-box-open text-celestial-600"></i>
+                                <span>Catálogo de Productos</span>
+                            </div>
+                            <button onclick="openNewProductModal()" class="bg-celestial-600 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-xl flex items-center gap-1">
+                                <i class="fas fa-plus"></i> Crear
+                            </button>
+                        </div>
+                        
+                        <div id="products-list-container" class="space-y-2 max-h-80 overflow-y-auto no-scrollbar">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-SECCIÓN: VENDEDORES -->
+                <div id="admin-sec-vendors" class="space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center space-x-2 text-slate-800 font-bold text-xs">
+                                <i class="fas fa-id-card text-celestial-600"></i>
+                                <span>Gestión de Vendedores</span>
+                            </div>
+                            <button onclick="openNewVendorModal()" class="bg-celestial-600 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-xl flex items-center gap-1">
+                                <i class="fas fa-plus"></i> Agregar
+                            </button>
+                        </div>
+                        
+                        <div id="vendors-list-container" class="space-y-2 max-h-80 overflow-y-auto no-scrollbar">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-SECCIÓN: PIN -->
+                <div id="admin-sec-pin" class="space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center space-x-2 text-slate-800 font-bold text-xs">
+                            <i class="fas fa-key text-amber-500"></i>
+                            <span>Cambiar PIN Administrador</span>
+                        </div>
+                        <div class="space-y-2">
+                            <input type="password" id="new-pin-input" placeholder="Nuevo PIN Admin" class="w-full bg-slate-50 border border-slate-300 text-xs rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500">
+                            <button onclick="changeAdminPin()" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold text-xs rounded-xl p-3 transition">
+                                Guardar Clave Admin
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Navegación Inferior -->
+        <nav id="app-nav" class="absolute bottom-0 w-full bg-white border-t border-slate-200 flex justify-around items-center py-2 z-40 hidden">
+            <button onclick="switchTab('pos')" id="tab-pos" class="flex flex-col items-center text-celestial-600 w-1/4 transition">
+                <i class="fas fa-cash-register text-base"></i>
+                <span class="text-[10px] font-medium mt-0.5">Venta</span>
+            </button>
+            <button onclick="switchTab('history')" id="tab-history" class="flex flex-col items-center text-slate-400 w-1/4 transition">
+                <i class="fas fa-chart-line text-base"></i>
+                <span class="text-[10px] font-medium mt-0.5">En Vivo</span>
+            </button>
+            <button onclick="switchTab('clients')" id="tab-clients" class="flex flex-col items-center text-slate-400 w-1/4 transition">
+                <i class="fas fa-users text-base"></i>
+                <span class="text-[10px] font-medium mt-0.5">Clientes</span>
+            </button>
+            <button onclick="switchTab('admin')" id="tab-admin" class="flex flex-col items-center text-slate-400 w-1/4 transition">
+                <i class="fas fa-shield-halved text-base"></i>
+                <span class="text-[10px] font-medium mt-0.5">Admin</span>
+            </button>
+        </nav>
+
+    </div>
+
+    <!-- MODALES -->
+    <!-- MODAL PRODUCTO -->
+    <div id="modal-product" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="text-sm font-bold text-slate-800" id="modal-product-title">Nuevo Producto</h3>
+                <button onclick="closeProductModal()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="space-y-3">
+                <input type="hidden" id="edit-product-id">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto</label>
+                    <input type="text" id="product-name" placeholder="Ej. Botellón 5G L23" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Precio Unitario (Lempiras)</label>
+                    <input type="number" step="0.5" id="product-price" placeholder="23.00" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeProductModal()" class="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-xl text-xs font-semibold">Cancelar</button>
+                <button onclick="saveProduct()" class="w-1/2 bg-celestial-600 hover:bg-celestial-700 text-white py-2.5 rounded-xl text-xs font-semibold shadow-md shadow-celestial-600/30">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL VENDEDOR -->
+    <div id="modal-vendor" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="text-sm font-bold text-slate-800" id="modal-vendor-title">Nuevo Vendedor</h3>
+                <button onclick="closeVendorModal()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="space-y-3">
+                <input type="hidden" id="edit-vendor-id">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo</label>
+                    <input type="text" id="vendor-name" placeholder="Ej. Juan Pérez" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Usuario</label>
+                    <input type="text" id="vendor-username" placeholder="Ej. juan" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Contraseña / PIN</label>
+                    <input type="password" id="vendor-password" placeholder="••••" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeVendorModal()" class="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-xl text-xs font-semibold">Cancelar</button>
+                <button onclick="saveVendor()" class="w-1/2 bg-celestial-600 hover:bg-celestial-700 text-white py-2.5 rounded-xl text-xs font-semibold shadow-md shadow-celestial-600/30">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL RECIBO -->
+    <div id="modal-receipt" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl space-y-4 text-center">
+            <div class="w-14 h-14 bg-cyan-100 text-celestial-600 rounded-full flex items-center justify-center mx-auto text-2xl">
+                <i class="fas fa-check-double"></i>
+            </div>
+            
+            <div>
+                <h3 class="text-lg font-bold text-slate-800">¡Venta Registrada!</h3>
+                <p class="text-xs text-slate-400">Agua Celestial - Guardado en Nube</p>
+            </div>
+
+            <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-1.5 text-left text-xs">
+                <div class="flex justify-between text-slate-500">
+                    <span>Hora:</span>
+                    <span id="rec-date" class="font-semibold text-slate-700"></span>
+                </div>
+                <div class="flex justify-between text-slate-500">
+                    <span>Cliente:</span>
+                    <span id="rec-client" class="font-semibold text-slate-700"></span>
+                </div>
+                <div class="flex justify-between text-slate-500">
+                    <span>Producto:</span>
+                    <span id="rec-product" class="font-semibold text-slate-700"></span>
+                </div>
+                <div class="flex justify-between text-slate-500">
+                    <span>Pago:</span>
+                    <span id="rec-payment" class="font-semibold text-slate-700"></span>
+                </div>
+                <hr class="my-1 border-slate-200">
+                <div class="flex justify-between text-slate-500">
+                    <span>Cantidad:</span>
+                    <span id="rec-qty" class="font-semibold text-slate-700"></span>
+                </div>
+                <div class="flex justify-between text-slate-500">
+                    <span>Precio Unitario:</span>
+                    <span id="rec-price" class="font-semibold text-slate-700"></span>
+                </div>
+                <div class="flex justify-between text-sm font-bold text-slate-800 pt-1 border-t border-slate-200">
+                    <span>Total Cobrado:</span>
+                    <span id="rec-total" class="text-celestial-600"></span>
+                </div>
+            </div>
+
+            <button onclick="closeReceiptModal()" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-semibold text-xs transition">
+                Aceptar
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL TICKET CIERRE -->
+    <div id="modal-close-ticket" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 hidden">
+        <div class="bg-white rounded-3xl p-4 w-full max-w-sm max-h-[90vh] flex flex-col shadow-2xl space-y-3">
+            <div class="flex justify-between items-center border-b pb-2 no-print">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fas fa-print text-celestial-600"></i> Ticket de Cierre
+                </h3>
+                <button onclick="closeTicketModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto no-scrollbar p-1">
+                <div id="print-ticket-area" class="bg-white border border-slate-300 p-4 rounded-xl text-slate-800 text-xs font-mono space-y-3 shadow-inner">
+                    <div class="text-center space-y-0.5 border-b border-dashed border-slate-300 pb-2">
+                        <h2 class="font-black text-base uppercase tracking-wider text-slate-900">AGUA CELESTIAL</h2>
+                        <p class="text-[10px] text-slate-500 font-sans">Purificadora & Distribuidora</p>
+                        <p class="text-[10px] font-semibold text-slate-700 pt-1" id="tkt-title">REPORTE DE CIERRE</p>
+                        <p class="text-[9px] text-slate-500" id="tkt-date"></p>
+                    </div>
+
+                    <div class="space-y-1 text-[11px] border-b border-dashed border-slate-300 pb-2">
+                        <div class="flex justify-between">
+                            <span>TOTAL UNIDADES:</span>
+                            <span class="font-bold" id="tkt-total-qty">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Nº TRANSACCIONES:</span>
+                            <span class="font-bold" id="tkt-sales-count">0</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-black pt-1">
+                            <span>RECAUDADO:</span>
+                            <span id="tkt-total-money">L 0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1 text-[10px] border-b border-dashed border-slate-300 pb-2">
+                        <p class="font-bold text-slate-700 uppercase">Métodos de Pago:</p>
+                        <div class="flex justify-between">
+                            <span>Efectivo:</span>
+                            <span class="font-bold" id="tkt-pay-cash">L 0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Transferencia:</span>
+                            <span class="font-bold" id="tkt-pay-transf">L 0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Crédito:</span>
+                            <span class="font-bold" id="tkt-pay-credit">L 0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1 text-[10px] border-b border-dashed border-slate-300 pb-2">
+                        <p class="font-bold text-slate-700 uppercase">Por Vendedor:</p>
+                        <div id="tkt-vendors-summary" class="space-y-1">
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5 text-[10px]">
+                        <p class="font-bold text-slate-700 uppercase">Detalle de Entregas:</p>
+                        <div id="tkt-sales-details" class="space-y-1">
+                        </div>
+                    </div>
+
+                    <div class="text-center pt-2 border-t border-dashed border-slate-300 text-[9px] text-slate-500">
+                        <p>--- COMPROBANTE CLOUD ---</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 no-print">
+                <button onclick="window.print()" class="bg-celestial-600 hover:bg-celestial-700 text-white py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition">
+                    <i class="fas fa-print"></i> Imprimir / PDF
+                </button>
+                <button onclick="exportTicketPNG()" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition">
+                    <i class="fas fa-file-image"></i> Exportar PNG
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CLIENTE -->
+    <div id="modal-client" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="text-sm font-bold text-slate-800" id="modal-client-title">Nuevo Cliente</h3>
+                <button onclick="closeClientModal()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="space-y-3">
+                <input type="hidden" id="edit-client-id">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre o Negocio</label>
+                    <input type="text" id="client-name" placeholder="Ej. Pulpería El Trébol" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Teléfono</label>
+                    <input type="text" id="client-phone" placeholder="Ej. 9900-1122" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-celestial-500 outline-none">
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeClientModal()" class="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-xl text-xs font-semibold">Cancelar</button>
+                <button onclick="saveClient()" class="w-1/2 bg-celestial-600 hover:bg-celestial-700 text-white py-2.5 rounded-xl text-xs font-semibold shadow-md shadow-celestial-600/30">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LÓGICA DE APLICACIÓN E INTEGRACIÓN DE FIREBASE -->
+    <script>
+        // CONFIGURACIÓN DE FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyCXvQOmjkum6-84A0UIcXkvc8usHQ9c5BM",
+            authDomain: "aguacelestialpos.firebaseapp.com",
+            databaseURL: "https://aguacelestialpos-default-rtdb.firebaseio.com",
+            projectId: "aguacelestialpos",
+            storageBucket: "aguacelestialpos.firebasestorage.app",
+            messagingSenderId: "434627287244",
+            appId: "1:434627287244:web:76f86c3db5e76b305d0a69",
+            measurementId: "G-0VVEN00BRY"
+        };
+
+        // Inicialización de Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let adminPIN = "1234";
+        let currentUser = null;
+
+        let products = [
+            { id: 1, name: "Botellón 5G L 23", price: 23.00 },
+            { id: 2, name: "Bolsa de Agua L 18", price: 18.00 },
+            { id: 3, name: "Bolsa de Hielo L 25", price: 25.00 }
+        ];
+
+        let vendors = [
+            { id: 1, name: "Juan Pérez", username: "juan", password: "1234" },
+            { id: 2, name: "Pedro López", username: "pedro", password: "1234" }
+        ];
+
+        let clients = [
+            { id: 1, name: "Cliente General", phone: "N/A" },
+            { id: 2, name: "Pulpería El Trébol", phone: "9811-2233" }
+        ];
+
+        let salesHistory = [];
+        let dailyClosesHistory = [];
+
+        // SINCRONIZACIÓN EN TIEMPO REAL DESDE FIREBASE
+        function initFirebaseListeners() {
+            // Sincronizar PIN
+            db.ref('adminPIN').on('value', snapshot => {
+                if (snapshot.exists()) {
+                    adminPIN = snapshot.val();
+                } else {
+                    db.ref('adminPIN').set("1234");
+                }
+            });
+
+            // Sincronizar Productos
+            db.ref('products').on('value', snapshot => {
+                if (snapshot.exists()) {
+                    products = snapshot.val();
+                } else {
+                    db.ref('products').set(products);
+                }
+                renderProductsList();
+                renderProductOptions();
+            });
+
+            // Sincronizar Vendedores
+            db.ref('vendors').on('value', snapshot => {
+                if (snapshot.exists()) {
+                    vendors = snapshot.val();
+                } else {
+                    db.ref('vendors').set(vendors);
+                }
+                renderVendorsList();
+            });
+
+            // Sincronizar Clientes
+            db.ref('clients').on('value', snapshot => {
+                if (snapshot.exists()) {
+                    clients = snapshot.val();
+                } else {
+                    db.ref('clients').set(clients);
+                }
+                renderClientOptions();
+                renderClientsList();
+            });
+
+            // Sincronizar Ventas Activas (Carga en tiempo real para todos los dispositivos)
+            db.ref('ventas').on('value', snapshot => {
+                const data = snapshot.val();
+                salesHistory = [];
+                if (data) {
+                    Object.keys(data).forEach(key => {
+                        salesHistory.push({ firebaseKey: key, ...data[key] });
+                    });
+                    salesHistory.sort((a, b) => b.id - a.id);
+                }
+                renderSalesHistory();
+                if (currentUser && currentUser.role === 'vendor') updateVendorPosStats();
+                if (currentUser && currentUser.role === 'admin') updateClosePreviewStats();
+            });
+
+            // Sincronizar Historial de Cierres
+            db.ref('cierres').on('value', snapshot => {
+                const data = snapshot.val();
+                dailyClosesHistory = [];
+                if (data) {
+                    Object.keys(data).forEach(key => {
+                        dailyClosesHistory.push({ firebaseKey: key, ...data[key] });
+                    });
+                    dailyClosesHistory.sort((a, b) => b.id - a.id);
+                }
+                renderDailyClosesHistory();
+            });
+        }
+
+        window.onload = function() {
+            updateClock();
+            setInterval(updateClock, 30000);
+            initFirebaseListeners();
+            calculateTotal();
+        };
+
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('current-time').innerText = `${hours}:${minutes}`;
+        }
+
+        function quickLogin(username, password) {
+            document.getElementById('login-username').value = username;
+            document.getElementById('login-password').value = password;
+            handleLoginSubmit(new Event('submit'));
+        }
+
+        function handleLoginSubmit(e) {
+            if (e) e.preventDefault();
+            const userVal = document.getElementById('login-username').value.trim().toLowerCase();
+            const passVal = document.getElementById('login-password').value.trim();
+            const errorElement = document.getElementById('login-error');
+
+            if (userVal === 'admin' && passVal === adminPIN) {
+                currentUser = { role: 'admin', username: 'admin', name: 'Administrador' };
+                setupSessionUI();
+                switchTab('admin');
+                return;
+            }
+
+            const foundVendor = vendors.find(v => v.username.toLowerCase() === userVal && v.password === passVal);
+            if (foundVendor) {
+                currentUser = { role: 'vendor', username: foundVendor.username, name: foundVendor.name };
+                setupSessionUI();
+                switchTab('pos');
+                return;
+            }
+
+            errorElement.classList.remove('hidden');
+        }
+
+        function setupSessionUI() {
+            document.getElementById('login-error').classList.add('hidden');
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+            document.getElementById('view-login').classList.add('hidden');
+            document.getElementById('app-header').classList.remove('hidden');
+            document.getElementById('app-nav').classList.remove('hidden');
+
+            const badge = document.getElementById('role-badge');
+            if (currentUser.role === 'admin') {
+                badge.className = "bg-rose-500 text-white font-bold px-1.5 py-0.2 rounded text-[10px]";
+                badge.innerText = "Admin";
+                document.getElementById('active-user-display').innerText = "Admin: Sesión Activa";
+                document.getElementById('tab-admin').classList.remove('hidden');
+            } else {
+                badge.className = "bg-amber-400 text-slate-900 font-bold px-1.5 py-0.2 rounded text-[10px]";
+                badge.innerText = "Vendedor";
+                document.getElementById('active-user-display').innerText = `Vendedor: ${currentUser.name}`;
+                document.getElementById('tab-admin').classList.add('hidden');
+            }
+
+            updateVendorPosStats();
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('role-badge').className = "bg-amber-400 text-slate-900 font-bold px-1.5 py-0.2 rounded text-[10px]";
+            document.getElementById('role-badge').innerText = "Sin Sesión";
+            document.getElementById('app-header').classList.add('hidden');
+            document.getElementById('app-nav').classList.add('hidden');
+            
+            document.getElementById('view-pos').classList.add('hidden');
+            document.getElementById('view-history').classList.add('hidden');
+            document.getElementById('view-clients').classList.add('hidden');
+            document.getElementById('view-admin').classList.add('hidden');
+            document.getElementById('view-login').classList.remove('hidden');
+        }
+
+        function switchTab(tab) {
+            document.getElementById('view-pos').classList.add('hidden');
+            document.getElementById('view-history').classList.add('hidden');
+            document.getElementById('view-clients').classList.add('hidden');
+            document.getElementById('view-admin').classList.add('hidden');
+
+            ['pos', 'history', 'clients', 'admin'].forEach(t => {
+                const el = document.getElementById(`tab-${t}`);
+                if (el) el.className = "flex flex-col items-center text-slate-400 w-1/4 transition";
+            });
+
+            document.getElementById(`view-${tab}`).classList.remove('hidden');
+            document.getElementById(`tab-${tab}`).className = "flex flex-col items-center text-celestial-600 w-1/4 transition font-bold";
+
+            if (tab === 'pos') updateVendorPosStats();
+            if (tab === 'admin') updateClosePreviewStats();
+        }
+
+        // LOGICA POS
+        function renderClientOptions() {
+            const select = document.getElementById('pos-client-select');
+            select.innerHTML = '';
+            clients.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.innerText = c.name;
+                select.appendChild(opt);
+            });
+        }
+
+        function renderProductOptions() {
+            const select = document.getElementById('pos-product-select');
+            select.innerHTML = '';
+            products.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.innerText = `${p.name} - L ${p.price.toFixed(2)}`;
+                select.appendChild(opt);
+            });
+            onPosProductChange();
+        }
+
+        function onPosProductChange() {
+            const prodId = parseInt(document.getElementById('pos-product-select').value);
+            const prod = products.find(p => p.id === prodId);
+            if (prod) {
+                document.getElementById('pos-unit-price-display').value = `L ${prod.price.toFixed(2)}`;
+            }
+            calculateTotal();
+        }
+
+        function adjustQuantity(delta) {
+            const qtyInput = document.getElementById('pos-qty');
+            let val = parseInt(qtyInput.value) || 1;
+            val += delta;
+            if (val < 1) val = 1;
+            qtyInput.value = val;
+            calculateTotal();
+        }
+
+        function calculateTotal() {
+            const qty = parseInt(document.getElementById('pos-qty').value) || 1;
+            const prodId = parseInt(document.getElementById('pos-product-select').value);
+            const prod = products.find(p => p.id === prodId);
+            const price = prod ? prod.price : 0;
+
+            document.getElementById('pos-total').innerText = `L ${(qty * price).toFixed(2)}`;
+        }
+
+        function processSale() {
+            const clientId = parseInt(document.getElementById('pos-client-select').value);
+            const client = clients.find(c => c.id === clientId) || { name: 'Cliente General' };
+            const prodId = parseInt(document.getElementById('pos-product-select').value);
+            const prod = products.find(p => p.id === prodId) || { name: 'Producto', price: 0 };
+
+            const qty = parseInt(document.getElementById('pos-qty').value) || 1;
+            const price = prod.price;
+            const payment = document.querySelector('input[name="payment"]:checked').value;
+            const total = qty * price;
+            const dateStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const sale = {
+                id: Date.now(),
+                date: dateStr,
+                client: client.name,
+                product: prod.name,
+                qty: qty,
+                price: price,
+                payment: payment,
+                total: total,
+                vendor: currentUser ? currentUser.name : "Vendedor"
+            };
+
+            // GUARDAR DIRECTAMENTE EN FIREBASE REALTIME DATABASE
+            db.ref('ventas').push(sale);
+
+            document.getElementById('rec-date').innerText = dateStr;
+            document.getElementById('rec-client').innerText = client.name;
+            document.getElementById('rec-product').innerText = prod.name;
+            document.getElementById('rec-payment').innerText = payment;
+            document.getElementById('rec-qty').innerText = `${qty} unidad(es)`;
+            document.getElementById('rec-price').innerText = `L ${price.toFixed(2)}`;
+            document.getElementById('rec-total').innerText = `L ${total.toFixed(2)}`;
+            document.getElementById('modal-receipt').classList.remove('hidden');
+
+            document.getElementById('pos-qty').value = "1";
+            calculateTotal();
+        }
+
+        function closeReceiptModal() {
+            document.getElementById('modal-receipt').classList.add('hidden');
+        }
+
+        function updateVendorPosStats() {
+            if (!currentUser) return;
+            const mySales = salesHistory.filter(s => s.vendor === currentUser.name);
+            const totalQty = mySales.reduce((sum, s) => sum + s.qty, 0);
+            const totalMoney = mySales.reduce((sum, s) => sum + s.total, 0);
+
+            document.getElementById('pos-vendor-qty').innerText = totalQty;
+            document.getElementById('pos-vendor-total').innerText = `L ${totalMoney.toFixed(2)}`;
+        }
+
+        function renderSalesHistory() {
+            const container = document.getElementById('sales-list-container');
+            container.innerHTML = '';
+            document.getElementById('history-count').innerText = `${salesHistory.length} ventas`;
+
+            if (salesHistory.length === 0) {
+                container.innerHTML = '<p class="text-xs text-slate-400 py-4 text-center">No hay ventas activas en ruta.</p>';
+                return;
+            }
+
+            salesHistory.forEach(s => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center text-xs";
+                card.innerHTML = `
+                    <div class="space-y-0.5">
+                        <div class="flex items-center space-x-2">
+                            <span class="font-bold text-slate-800">${s.client}</span>
+                            <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">${s.payment}</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500">${s.product} • ${s.qty} un. @ L ${s.price.toFixed(2)}</p>
+                        <p class="text-[10px] text-celestial-600 font-semibold">Hora: ${s.date} | Vend: ${s.vendor}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-black text-slate-900 text-sm">L ${s.total.toFixed(2)}</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // FUNCIONES DE ADMINISTRACIÓN
+        function switchAdminSubtab(subtab) {
+            ['close', 'products', 'vendors', 'pin'].forEach(t => {
+                document.getElementById(`admin-sec-${t}`).classList.add('hidden');
+                document.getElementById(`subtab-${t}`).className = "bg-white text-slate-600 py-2 rounded-xl text-[11px] font-bold border border-slate-200";
+            });
+            document.getElementById(`admin-sec-${subtab}`).classList.remove('hidden');
+            document.getElementById(`subtab-${subtab}`).className = "bg-slate-800 text-white py-2 rounded-xl text-[11px] font-bold shadow-sm";
+        }
+
+        function renderProductsList() {
+            const container = document.getElementById('products-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            products.forEach(p => {
+                const card = document.createElement('div');
+                card.className = "bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex justify-between items-center text-xs";
+                card.innerHTML = `
+                    <div>
+                        <p class="font-bold text-slate-800">${p.name}</p>
+                        <p class="text-[10px] text-celestial-700 font-bold">Precio: L ${p.price.toFixed(2)}</p>
+                    </div>
+                    <div class="flex space-x-1">
+                        <button onclick="editProduct(${p.id})" class="text-slate-500 hover:text-celestial-600 p-1.5"><i class="fas fa-pen"></i></button>
+                        <button onclick="deleteProduct(${p.id})" class="text-slate-500 hover:text-rose-600 p-1.5"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderVendorsList() {
+            const container = document.getElementById('vendors-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            vendors.forEach(v => {
+                const card = document.createElement('div');
+                card.className = "bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex justify-between items-center text-xs";
+                card.innerHTML = `
+                    <div>
+                        <p class="font-bold text-slate-800">${v.name}</p>
+                        <p class="text-[10px] text-slate-400">Usuario: @${v.username} | Clave: ${v.password}</p>
+                    </div>
+                    <div class="flex space-x-1">
+                        <button onclick="editVendor(${v.id})" class="text-slate-500 hover:text-celestial-600 p-1.5"><i class="fas fa-pen"></i></button>
+                        <button onclick="deleteVendor(${v.id})" class="text-slate-500 hover:text-rose-600 p-1.5"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            renderCloseVendorOptions();
+        }
+
+        function renderCloseVendorOptions() {
+            const select = document.getElementById('admin-close-vendor-select');
+            if (!select) return;
+            const currentVal = select.value;
+
+            select.innerHTML = '<option value="ALL">-- CIERRE GENERAL (TODOS LOS VENDEDORES) --</option>';
+            vendors.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.name;
+                opt.innerText = `Vendedor: ${v.name}`;
+                select.appendChild(opt);
+            });
+
+            select.value = currentVal || "ALL";
+            updateClosePreviewStats();
+        }
+
+        function updateClosePreviewStats() {
+            const selectedVendor = document.getElementById('admin-close-vendor-select').value;
+            let filteredSales = salesHistory;
+
+            if (selectedVendor !== "ALL") {
+                filteredSales = salesHistory.filter(s => s.vendor === selectedVendor);
+            }
+
+            const totalQty = filteredSales.reduce((sum, item) => sum + item.qty, 0);
+            const totalMoney = filteredSales.reduce((sum, item) => sum + item.total, 0);
+
+            document.getElementById('close-qty').innerText = `${totalQty} unidades`;
+            document.getElementById('close-money').innerText = `L ${totalMoney.toFixed(2)}`;
+        }
+
+        function previewCurrentClose() {
+            const selectedVendor = document.getElementById('admin-close-vendor-select').value;
+            let targetSales = salesHistory;
+
+            if (selectedVendor !== "ALL") {
+                targetSales = salesHistory.filter(s => s.vendor === selectedVendor);
+            }
+
+            if (targetSales.length === 0) {
+                alert(`No hay ventas activas registradas para ${selectedVendor === "ALL" ? "ningún vendedor" : selectedVendor}.`);
+                return;
+            }
+
+            const totalQty = targetSales.reduce((sum, item) => sum + item.qty, 0);
+            const totalMoney = targetSales.reduce((sum, item) => sum + item.total, 0);
+            const dateStr = new Date().toLocaleDateString() + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const closeData = {
+                date: dateStr,
+                closedVendor: selectedVendor,
+                totalQty: totalQty,
+                totalMoney: totalMoney,
+                salesCount: targetSales.length,
+                salesDetails: JSON.parse(JSON.stringify(targetSales))
+            };
+
+            const titleLabel = selectedVendor === "ALL" 
+                ? "TICKET DE CIERRE GENERAL (PREVIA)" 
+                : `TICKET DE CIERRE: ${selectedVendor.toUpperCase()}`;
+
+            openTicketModal(closeData, titleLabel);
+        }
+
+        function performDailyClose() {
+            const selectedVendor = document.getElementById('admin-close-vendor-select').value;
+            let targetSales = [];
+
+            if (selectedVendor === "ALL") {
+                targetSales = salesHistory;
+            } else {
+                targetSales = salesHistory.filter(s => s.vendor === selectedVendor);
+            }
+
+            if (targetSales.length === 0) {
+                alert(`No hay ventas pendientes por cerrar para ${selectedVendor === "ALL" ? "ningún vendedor" : selectedVendor}.`);
+                return;
+            }
+
+            const totalQty = targetSales.reduce((sum, item) => sum + item.qty, 0);
+            const totalMoney = targetSales.reduce((sum, item) => sum + item.total, 0);
+            const dateStr = new Date().toLocaleDateString() + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const closeSummary = {
+                id: Date.now(),
+                date: dateStr,
+                closedVendor: selectedVendor,
+                totalQty: totalQty,
+                totalMoney: totalMoney,
+                salesCount: targetSales.length,
+                salesDetails: JSON.parse(JSON.stringify(targetSales))
+            };
+
+            // REGISTRAR CIERRE EN FIREBASE
+            db.ref('cierres').push(closeSummary);
+
+            // ELIMINAR DE FIREBASE ÚNICAMENTE LAS VENTAS PROCESADAS EN EL CIERRE
+            targetSales.forEach(s => {
+                if (s.firebaseKey) {
+                    db.ref(`ventas/${s.firebaseKey}`).remove();
+                }
+            });
+
+            const ticketTitle = selectedVendor === "ALL"
+                ? "REPORTE DE CIERRE GENERAL"
+                : `REPORTE DE CIERRE: ${selectedVendor.toUpperCase()}`;
+
+            openTicketModal(closeSummary, ticketTitle);
+        }
+
+        function renderDailyClosesHistory() {
+            const container = document.getElementById('close-history-container');
+            container.innerHTML = '';
+
+            if (dailyClosesHistory.length === 0) {
+                container.innerHTML = '<p class="text-[11px] text-slate-400 py-2">No se han realizado cierres de caja.</p>';
+                return;
+            }
+
+            dailyClosesHistory.forEach(c => {
+                const wrapper = document.createElement('div');
+                wrapper.className = "bg-slate-50 border border-slate-200 rounded-xl overflow-hidden text-xs";
+
+                const vendorBadge = c.closedVendor && c.closedVendor !== "ALL"
+                    ? `<span class="bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.5 rounded">Vendedor: ${c.closedVendor}</span>`
+                    : `<span class="bg-celestial-100 text-celestial-800 text-[9px] font-bold px-1.5 py-0.5 rounded">Cierre General</span>`;
+
+                wrapper.innerHTML = `
+                    <div class="p-3 bg-white flex justify-between items-center">
+                        <div>
+                            <p class="font-bold text-slate-800 text-xs">${c.date}</p>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <p class="text-[10px] text-slate-500">${c.salesCount} ventas • ${c.totalQty} unidades</p>
+                                ${vendorBadge}
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="font-black text-emerald-600 text-xs">L ${c.totalMoney.toFixed(2)}</span>
+                            <button onclick="openTicketModalById('${c.firebaseKey}')" title="Imprimir Ticket" class="bg-celestial-50 hover:bg-celestial-100 text-celestial-700 p-2 rounded-xl text-xs transition">
+                                <i class="fas fa-print"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(wrapper);
+            });
+        }
+
+        function openTicketModalById(key) {
+            const closeItem = dailyClosesHistory.find(c => c.firebaseKey === key);
+            if (closeItem) {
+                const title = closeItem.closedVendor && closeItem.closedVendor !== "ALL" 
+                    ? `TICKET DE CIERRE: ${closeItem.closedVendor.toUpperCase()}`
+                    : "REPORTE DE CIERRE GENERAL";
+                openTicketModal(closeItem, title);
+            }
+        }
+
+        function openTicketModal(closeData, title) {
+            document.getElementById('tkt-title').innerText = title || "REPORTE DE CIERRE";
+            document.getElementById('tkt-date').innerText = closeData.date;
+            document.getElementById('tkt-total-qty').innerText = closeData.totalQty;
+            document.getElementById('tkt-sales-count').innerText = closeData.salesCount;
+            document.getElementById('tkt-total-money').innerText = `L ${closeData.totalMoney.toFixed(2)}`;
+
+            let cash = 0, transf = 0, credit = 0;
+            let vendorTotals = {};
+
+            (closeData.salesDetails || []).forEach(s => {
+                if (s.payment === "Efectivo") cash += s.total;
+                else if (s.payment === "Transferencia") transf += s.total;
+                else if (s.payment === "Crédito") credit += s.total;
+
+                const vName = s.vendor || "N/A";
+                if (!vendorTotals[vName]) vendorTotals[vName] = { qty: 0, total: 0 };
+                vendorTotals[vName].qty += s.qty;
+                vendorTotals[vName].total += s.total;
+            });
+
+            document.getElementById('tkt-pay-cash').innerText = `L ${cash.toFixed(2)}`;
+            document.getElementById('tkt-pay-transf').innerText = `L ${transf.toFixed(2)}`;
+            document.getElementById('tkt-pay-credit').innerText = `L ${credit.toFixed(2)}`;
+
+            const vendorSummaryContainer = document.getElementById('tkt-vendors-summary');
+            vendorSummaryContainer.innerHTML = '';
+            for (let vName in vendorTotals) {
+                const row = document.createElement('div');
+                row.className = "flex justify-between";
+                row.innerHTML = `<span>${vName}:</span><span class="font-bold">${vendorTotals[vName].qty} un. (L ${vendorTotals[vName].total.toFixed(2)})</span>`;
+                vendorSummaryContainer.appendChild(row);
+            }
+
+            const detailsContainer = document.getElementById('tkt-sales-details');
+            detailsContainer.innerHTML = '';
+            (closeData.salesDetails || []).forEach(s => {
+                const item = document.createElement('div');
+                item.className = "flex justify-between items-start py-0.5 border-b border-slate-200/50";
+                item.innerHTML = `
+                    <div>
+                        <span class="font-bold">${s.client}</span>
+                        <span class="text-[9px] text-slate-500 block">${s.product} (${s.qty} un @ L ${s.price.toFixed(2)}) - ${s.payment}</span>
+                    </div>
+                    <span class="font-bold">L ${s.total.toFixed(2)}</span>
+                `;
+                detailsContainer.appendChild(item);
+            });
+
+            document.getElementById('modal-close-ticket').classList.remove('hidden');
+        }
+
+        function closeTicketModal() {
+            document.getElementById('modal-close-ticket').classList.add('hidden');
+        }
+
+        function exportTicketPNG() {
+            const ticketArea = document.getElementById('print-ticket-area');
+            html2canvas(ticketArea, { scale: 2 }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `Ticket_Cierre_AguaCelestial_${Date.now()}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        }
+
+        // CRUD AUXILIARES (CONEXIÓN FIREBASE)
+        function openNewProductModal() {
+            document.getElementById('modal-product-title').innerText = "Nuevo Producto";
+            document.getElementById('edit-product-id').value = "";
+            document.getElementById('product-name').value = "";
+            document.getElementById('product-price').value = "";
+            document.getElementById('modal-product').classList.remove('hidden');
+        }
+
+        function closeProductModal() {
+            document.getElementById('modal-product').classList.add('hidden');
+        }
+
+        function saveProduct() {
+            const id = document.getElementById('edit-product-id').value;
+            const name = document.getElementById('product-name').value.trim();
+            const price = parseFloat(document.getElementById('product-price').value);
+
+            if (!name || isNaN(price) || price <= 0) {
+                alert("Ingresa un nombre y precio válido.");
+                return;
+            }
+
+            if (id) {
+                const idx = products.findIndex(p => p.id == id);
+                if (idx !== -1) products[idx] = { id: parseInt(id), name, price };
+            } else {
+                products.push({ id: Date.now(), name, price });
+            }
+
+            db.ref('products').set(products);
+            closeProductModal();
+        }
+
+        function editProduct(id) {
+            const p = products.find(x => x.id === id);
+            if (!p) return;
+            document.getElementById('modal-product-title').innerText = "Editar Producto";
+            document.getElementById('edit-product-id').value = p.id;
+            document.getElementById('product-name').value = p.name;
+            document.getElementById('product-price').value = p.price;
+            document.getElementById('modal-product').classList.remove('hidden');
+        }
+
+        function deleteProduct(id) {
+            if (confirm("¿Deseas eliminar este producto?")) {
+                products = products.filter(p => p.id !== id);
+                db.ref('products').set(products);
+            }
+        }
+
+        function openNewVendorModal() {
+            document.getElementById('modal-vendor-title').innerText = "Nuevo Vendedor";
+            document.getElementById('edit-vendor-id').value = "";
+            document.getElementById('vendor-name').value = "";
+            document.getElementById('vendor-username').value = "";
+            document.getElementById('vendor-password').value = "";
+            document.getElementById('modal-vendor').classList.remove('hidden');
+        }
+
+        function closeVendorModal() {
+            document.getElementById('modal-vendor').classList.add('hidden');
+        }
+
+        function saveVendor() {
+            const id = document.getElementById('edit-vendor-id').value;
+            const name = document.getElementById('vendor-name').value.trim();
+            const username = document.getElementById('vendor-username').value.trim();
+            const password = document.getElementById('vendor-password').value.trim();
+
+            if (!name || !username || !password) {
+                alert("Completa todos los campos.");
+                return;
+            }
+
+            if (id) {
+                const idx = vendors.findIndex(v => v.id == id);
+                if (idx !== -1) vendors[idx] = { id: parseInt(id), name, username, password };
+            } else {
+                vendors.push({ id: Date.now(), name, username, password });
+            }
+
+            db.ref('vendors').set(vendors);
+            closeVendorModal();
+        }
+
+        function editVendor(id) {
+            const v = vendors.find(x => x.id === id);
+            if (!v) return;
+            document.getElementById('modal-vendor-title').innerText = "Editar Vendedor";
+            document.getElementById('edit-vendor-id').value = v.id;
+            document.getElementById('vendor-name').value = v.name;
+            document.getElementById('vendor-username').value = v.username;
+            document.getElementById('vendor-password').value = v.password;
+            document.getElementById('modal-vendor').classList.remove('hidden');
+        }
+
+        function deleteVendor(id) {
+            if (confirm("¿Deseas eliminar este vendedor?")) {
+                vendors = vendors.filter(v => v.id !== id);
+                db.ref('vendors').set(vendors);
+            }
+        }
+
+        function changeAdminPin() {
+            const newPin = document.getElementById('new-pin-input').value.trim();
+            if (newPin.length < 4) {
+                alert("El PIN debe tener al menos 4 caracteres.");
+                return;
+            }
+            db.ref('adminPIN').set(newPin);
+            document.getElementById('new-pin-input').value = "";
+            alert("PIN de Administrador actualizado en la nube.");
+        }
+
+        function openNewClientModal() {
+            document.getElementById('modal-client-title').innerText = "Nuevo Cliente";
+            document.getElementById('edit-client-id').value = "";
+            document.getElementById('client-name').value = "";
+            document.getElementById('client-phone').value = "";
+            document.getElementById('modal-client').classList.remove('hidden');
+        }
+
+        function closeClientModal() {
+            document.getElementById('modal-client').classList.add('hidden');
+        }
+
+        function saveClient() {
+            const id = document.getElementById('edit-client-id').value;
+            const name = document.getElementById('client-name').value.trim();
+            const phone = document.getElementById('client-phone').value.trim();
+
+            if (!name) {
+                alert("Ingresa el nombre del cliente.");
+                return;
+            }
+
+            if (id) {
+                const idx = clients.findIndex(c => c.id == id);
+                if (idx !== -1) clients[idx] = { id: parseInt(id), name, phone: phone || "N/A" };
+            } else {
+                clients.push({ id: Date.now(), name, phone: phone || "N/A" });
+            }
+
+            db.ref('clients').set(clients);
+            closeClientModal();
+        }
+
+        function renderClientsList() {
+            const container = document.getElementById('clients-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            clients.forEach(c => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center text-xs";
+                card.innerHTML = `
+                    <div>
+                        <p class="font-bold text-slate-800">${c.name}</p>
+                        <p class="text-[10px] text-slate-400">Tel: ${c.phone}</p>
+                    </div>
+                    <div class="flex space-x-1">
+                        <button onclick="editClient(${c.id})" class="text-slate-500 hover:text-celestial-600 p-1.5"><i class="fas fa-pen"></i></button>
+                        <button onclick="deleteClient(${c.id})" class="text-slate-500 hover:text-rose-600 p-1.5"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function editClient(id) {
+            const c = clients.find(x => x.id === id);
+            if (!c) return;
+            document.getElementById('modal-client-title').innerText = "Editar Cliente";
+            document.getElementById('edit-client-id').value = c.id;
+            document.getElementById('client-name').value = c.name;
+            document.getElementById('client-phone').value = c.phone;
+            document.getElementById('modal-client').classList.remove('hidden');
+        }
+
+        function deleteClient(id) {
+            if (confirm("¿Deseas eliminar este cliente?")) {
+                clients = clients.filter(c => c.id !== id);
+                db.ref('clients').set(clients);
+            }
+        }
+    </script>
+</body>
+</html>
+```
